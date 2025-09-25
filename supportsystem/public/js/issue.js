@@ -1,3 +1,17 @@
+frappe.listview_settings['Issue'] = {
+    get_indicator: function (doc) {
+      console.log("Doc Status: ", doc.status);
+      
+        if (doc.status == "Closed" || doc.status == "Live" || doc.status == "Resolved") {
+            return [__(doc.status), "green", "status,=,Closed"];
+        } else if (doc.status === "Open" || doc.status === "Re-Opened") {
+            return [__(doc.status), "red", "status,=,"+doc.status]; //red
+        } else {
+            return [__(doc.status), "yellow", "status,=,"+doc.status];    //gray
+        }
+    }
+}
+
 frappe.ui.form.on("Issue", {
 	refresh(frm) {
         // frm.add_custom_button(__('Go to Client System'), function() {
@@ -19,17 +33,17 @@ frappe.ui.form.on("Issue", {
   validate: function(frm) {
 
     if(frm._previous_resolution != frm.doc.resolution_details){
-        frm.doc.custom_ticket_status = 'Resolved'
+        frm.doc.status = 'Resolved'
     }
 
 
-      if (!frm.is_new() && frm.doc.custom_ticket_status !== frm._previous_status){
+      if (!frm.is_new() && frm.doc.status !== frm._previous_status){
         
         frm.add_child("custom_ticket_timeline", {
                 timestamp: frappe.datetime.now_datetime(),
                 date: frappe.datetime.get_today(),
-                status: frm.doc.custom_ticket_status,
-                notes: `Status changed from .. to ${frm.doc.custom_ticket_status}`,
+                status: frm.doc.status,
+                notes: `Status changed from .. to ${frm.doc.status}`,
                 added_by: frappe.user_info(frappe.session.user).fullname
             });
 
@@ -47,8 +61,9 @@ frappe.ui.form.on("Issue", {
       
     
       }
-      frm._previous_status = frm.doc.custom_ticket_status;
+      frm._previous_status = frm.doc.status;
       frm._previous_resolution = frm.doc.resolution_details;
+
   },
   after_save: function(frm){
 
@@ -111,7 +126,7 @@ frappe.ui.form.on("Issue", {
     },
     onload(frm){
 
-      frm._previous_status = frm.doc.custom_ticket_status;
+      frm._previous_status = frm.doc.status;
       frm._previous_resolution = frm.doc.resolution_details;
 
         frappe.db.get_value("File", {

@@ -129,9 +129,9 @@ app_license = "mit"
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+    "Issue": "supportsystem.supportsystem.custom.custom_hd_ticket.CustomIssue"
+}
 
 # Document Events
 # ---------------
@@ -154,6 +154,9 @@ doc_events = {
     }
 }
 doctype_js = {
+    "Issue": "public/js/issue.js"
+}
+doctypes_list_js = {
     "Issue": "public/js/issue.js"
 }
 

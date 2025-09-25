@@ -7,6 +7,7 @@ import re
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Concat_ws
 import base64
+from frappe.utils.password import get_decrypted_password
 
 
 
@@ -35,7 +36,7 @@ def received_comment(doc):
     
 @frappe.whitelist(allow_guest=True)
 def custom_new(doc=None, attachments=None):
-
+    # frappe.log_error(f"custom_new called with doc: {doc} and attachments: {attachments}", "Custom API Call")
     if isinstance(doc, str):
         doc = json.loads(doc)
 
@@ -165,14 +166,18 @@ def send_details_to_client(doc=None, method=None):
     try:
             doc = json.loads(doc)
             session = requests.Session()
-            status = doc.get('custom_ticket_status')
+            status = doc.get('status')
             resolution_details = doc.get('resolution_details')
+            # frappe.throw("Temp")
 
             idoc = frappe.get_doc("Issue", doc.get('name')) 
+            password = get_decrypted_password("Issue", idoc.name, "custom_reference_ticket_token")	
+        
+            frappe.log_error(f"IDOC: {idoc.name} | Client URL: {idoc.custom_client_url} | Token: {idoc.custom_reference_ticket_token} --- {password}", "Debug Info")
 
-            url = f"{idoc.custom_client_url}/api/resource/Ticket Details/{doc.get('custom_reference_ticket_id')}"
+            url = f"http://69.30.247.216:92/api/resource/Ticket Details/{doc.get('custom_reference_ticket_id')}"
             headers = {
-                "Authorization": f"token {idoc.get_password('custom_reference_ticket_token')}"
+                "Authorization": f"token {password}"
             }
             data = {
                 "status": status,
@@ -190,61 +195,78 @@ def send_details_to_client(doc=None, method=None):
 def sync_timeline_to_support_system(doc):
     doc = json.loads(doc)
     idoc = frappe.get_doc("Issue", doc.get('name'))
+    password = get_decrypted_password("Issue", idoc.name, "custom_reference_ticket_token")	
 
-    if(idoc and doc.get('custom_ticket_status') != idoc.custom_ticket_status):
+    if(idoc and doc.get('status') != idoc.status):
         try:
             timeline_entry = idoc.get('custom_ticket_timeline')[-1] if idoc.get('custom_ticket_timeline') else None
             if timeline_entry:
                 headers = {
-                    "Authorization": f"token {idoc.get_password('custom_reference_ticket_token')}"
+                    "Authorization": f"token {password}"
                 }
+                # url = f"{idoc.custom_client_url}/api/resource/Ticket Timeline Entry"
+                url = f"http://69.30.247.216:92/api/resource/Ticket Timeline Entry"
+                frappe.log_error(f"{frappe.request.scheme} | {frappe.request.host}", "Debug URL Parts")
 
-                url = f"{idoc.custom_client_url}/api/resource/Ticket Timeline Entry"
                 data = {
                     "parent": idoc.custom_reference_ticket_id,
                     "parenttype": "Ticket Details",
                     "parentfield": "ticket_timeline",
                     "date": frappe.utils.today(),       
-                    "status": doc.get('custom_ticket_status'),
+                    "status": doc.get('status'),
                     "notes": timeline_entry.notes,
                     "added_by": get_user_fullname(frappe.session.user),
                 }
-                frappe.log_error(f"URL: {url}\nHEADERS: {headers}\nDATA: {data}\nResponse: {response}","PUT Data info")
                 response = requests.post(url, headers=headers, json=data)
+                frappe.log_error(f"URL: {url}\nHEADERS: {headers}\nDATA: {data}\nResponse: {response}\n\n{idoc.custom_reference_ticket_token}","PUT Data info")
+
         except Exception as e:
             frappe.log_error(f"timeline sync error:\n\n {str(e)}")
 
-@frappe.whitelist(allow_guest=False)
-def sync_attachment(file_name, attached_to_doctype, attached_to_name, content):
-    import base64, os, frappe
+@frappe.whitelist()
+def sync_attachment():
+	import base64, os, json
 
-    # Decode base64 content
-    file_content = base64.b64decode(content)
+	data = frappe.local.form_dict
+	if not isinstance(data, dict):
+		data = json.loads(data)
 
-    # Define public file path
-    file_path = frappe.get_site_path("public", "files", file_name)
+	required_fields = ("file_name", "attached_to_doctype", "attached_to_name", "content")
+	for field in required_fields:
+		if field not in data:
+			frappe.throw(f"Missing field: {field}")
 
-    # Write file to disk FIRST
-    with open(file_path, "wb") as f:
-        f.write(file_content)
+	# uploader_email = data["uploaded_by"]["email"]
+	# uploader_name = data["uploaded_by"]["full_name"]
 
-    uploader_email = data["uploaded_by"]["email"]
-	uploader_name = data["uploaded_by"]["full_name"]
+	# Decode content and save file to disk
+	file_content = base64.b64decode(data["content"])
+	file_path = frappe.get_site_path("public", "files", data["file_name"])
+	with open(file_path, "wb") as f:
+		f.write(file_content)
 
-    file_doc = frappe.get_doc({
-        "doctype": "File",
-        "file_name": file_name,
-        "attached_to_doctype": attached_to_doctype,
-        "attached_to_name": attached_to_name,
-        "file_url": f"/files/{file_name}",
-        "is_private": 0,
-        "decode": True,
-		"attached_by": uploader_email
-    })
-    # Save after file is already on disk
-    file_doc.save()
+	# Create File document
+	file_doc = frappe.get_doc({
+		"doctype": "File",
+		"file_name": data["file_name"],
+		"attached_to_doctype": data["attached_to_doctype"],
+		"attached_to_name": data["attached_to_name"],
+		"file_url": f"/files/{data['file_name']}",
+		"is_private": 0,
+		# "attached_by": uploader_email if frappe.db.exists("User", uploader_email) else "bizmapsupport"
+	})
+	file_doc.insert(ignore_permissions=True)
 
-    return {"status": "success", "file_url": file_doc.file_url}
+	# Add activity comment
+	parent_doc = frappe.get_doc(data["attached_to_doctype"], data["attached_to_name"])
+	# comment_text = _("Document {0} was synced by {1} ({2}) from client ERP.").format(
+	# 	frappe.bold(data["file_name"]),
+	# 	uploader_name,
+	# 	uploader_email
+	# )
+	# parent_doc.add_comment("Attachment", comment_text)
+
+	return {"status": "success", "file_url": file_doc.file_url}
 
 
 def get_user_fullname(user: str) -> str:

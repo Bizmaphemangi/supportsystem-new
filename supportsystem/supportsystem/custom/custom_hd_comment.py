@@ -1,6 +1,6 @@
 import frappe
 import requests
-
+from frappe.utils.password import get_decrypted_password
 import json
 
 @frappe.whitelist()
@@ -11,9 +11,9 @@ def after_insert(doc, method):
 
 def admin_comment(doc):
 	ticket = frappe.get_doc("Issue",doc.reference_name)
-
+	password = get_decrypted_password("Issue", ticket.name, "custom_reference_ticket_token")
 	headers = {
-		"Authorization": f"token {ticket.get_password('custom_reference_ticket_token')}"
+		"Authorization": f"token {password}"
 	}
 	if isinstance(doc, str):
 		doc = frappe.get_doc("Comment",doc)
@@ -27,7 +27,7 @@ def admin_comment(doc):
 		"doc": doc_dict  # Assuming `doc` is correctly structured as required by the API
 	}
 
-	api_url = f"{ticket.custom_client_url}/api/method/genie.utils.support.received_host_comment"
+	api_url = f"http://69.30.247.216:92/api/method/genie.utils.support.received_host_comment"
 
 	# Make the POST request
 	response = requests.post(

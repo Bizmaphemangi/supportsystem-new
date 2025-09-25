@@ -5,14 +5,33 @@ import requests
 import json
 from pytz import UTC
 from dateutil.parser import isoparse
+from frappe.model.document import Document
+from frappe.model.naming import make_autoname   
 
+class CustomIssue(Document):
+    def validate(self):
+        pass
+        # frappe.log_error("validate test....!")
+        
+    def autoname(self):
+        if not self.customer and self.custom_client_url:
+            customer_name = frappe.db.get_value('Customer', {'website': self.custom_client_url}, 'customer_name')
+            if customer_name:
+                self.customer = customer_name
+                # self.name = make_autoname(f"{self.customer}-.###")
+            else:
+                frappe.throw("No customer found with the given client URL.")
+
+        # if self.customer:
+        #     frappe.log_error(f"customer-{self.customer}")
+            
 def after_insert(doc=None, method=None):
         # frappe.throw('custom_hd_ticket after_insert')
         if not doc.custom_ticket_timeline:
             doc.append("custom_ticket_timeline", {
                 "timestamp": frappe.utils.now_datetime(),
                 "date": today(),
-                "status": doc.custom_ticket_status,
+                "status": doc.status,
                 "note": "Ticket created with status Open",
                 "added_by": doc.custom_created_byname
             })
@@ -20,25 +39,25 @@ def after_insert(doc=None, method=None):
 
 
 def validate(doc=None, method=None):
-
         if not doc.customer and doc.custom_client_url:
+            frappe.msgprint('customerrrr')
             customer_name = frappe.db.get_value('Customer', {'website': doc.custom_client_url}, 'customer_name')
             if customer_name:
                 doc.customer = customer_name
                 frappe.logger().info(f"Customer set to: {customer_name}")
             else:
-                frappe.throw(_("No customer found with the given client URL.")) 
-
+                frappe.throw("No customer found with the given client URL.")
+        # else:
+        #     frappe.msgprint('customer not found!!, ',doc)
 
 @frappe.whitelist()
 def set_status(doc):
     for d in frappe.get_all("Issue",{'custom_reference_ticket_id': doc['custom_reference_ticket_id']}):
         hdTicket = frappe.get_doc("Issue", d.name)
 
-        hdTicket.custom_ticket_status = doc.get('custom_ticket_status') 
+        hdTicket.status = doc.get('status') 
         hdTicket.custom_category = doc.get('custom_category') 
 
-        # if doc['custom_ticket_status'] == 'Closed':
         hdTicket.custom_feedback =    doc.get('custom_feedback') or None
         hdTicket.custom_feedback_extra = doc.get('custom_feedback_extra') or None
 
